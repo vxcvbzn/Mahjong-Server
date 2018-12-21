@@ -12,7 +12,6 @@ void notify(std::string text)
 int main()
 {
 	// init
-	notify("init");
 	WSADATA wsData;
 	WORD ver = MAKEWORD(2, 2);
 
@@ -24,7 +23,6 @@ int main()
 	}
 
 	// create socket
-	notify("create socket");
 	SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
 	if (listening == INVALID_SOCKET)
 	{
@@ -33,7 +31,6 @@ int main()
 	}
 
 	// bind socket
-	notify("bind socket");
 	sockaddr_in hint;
 	hint.sin_family = AF_INET;
 	hint.sin_port = htons(34100);
@@ -42,65 +39,58 @@ int main()
 	bind(listening, (sockaddr*)&hint, sizeof(hint));
 
 	// set as listening
-	notify("set as listening");
 	listen(listening, SOMAXCONN);
 
-	// wait for connection
-	notify("wait for connection");
-	sockaddr_in client;
-	int clientSize = sizeof(client);
+	fd_set master;
+	FD_ZERO(&master);
 
-	SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);
-	
-	char host[NI_MAXHOST];
-	char service[NI_MAXSERV];
-
-	ZeroMemory(host, NI_MAXHOST);
-	ZeroMemory(service, NI_MAXSERV);
-	
-	if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0)
-	{
-		std::cout << host << " connected on port " << service << "\n";
-	}
-	else
-	{
-		inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
-		std::cout << host << " connected on port " << ntohs(client.sin_port) << "\n";
-	}
-
-	// close listening
-	//notify("close listening");
-	//closesocket(listening);
-
-	// accept and echo message back
-	notify("echo");
-	char buf[4096];
+	FD_SET(listening, &master);
 
 	while (true)
 	{
-		ZeroMemory(buf, 4096);
+		fd_set copy = master;
+		
+		int socketCount = select(0, &copy, nullptr, nullptr, nullptr);
 
-		int bytesReceived = recv(clientSocket, buf, 4096, 0);
-		if (bytesReceived == SOCKET_ERROR)
+		for (int i = 0; i < socketCount; i++)
 		{
-			std::cerr << "Error in recv(), quitting...\n";
-			break;
+			SOCKET sock = copy.fd_array[i];
+			if (sock == listening)
+			{
+				SOCKET client = accept(listening, nullptr, nullptr);
+
+				FD_SET(client, &master);
+
+				//Send game data
+				std::string gameData = "some data";
+				send(client, gameData.c_str(), gameData.size() + 1, 0);
+			}
+			else
+			{
+				char buf[4096];
+				ZeroMemory(buf, 4096);
+				int bytesIn = recv(sock, buf, 4096, 0);
+				if (bytesIn <= 0)
+				{
+					closesocket(sock);
+					FD_CLR(sock, &master);
+				}
+				else
+				{
+					for (int i = 0; i < master.fd_count; i++)
+					{
+						SOCKET outSock = master.fd_array[i];
+						if (outSock != listening && outSock != sock)
+						{
+							send(outSock, buf, bytesIn, 0);
+						}
+					}
+				}
+			}
 		}
 
-		if (bytesReceived == 0)
-		{
-			std::cout << "Client disconnected\n";
-			break;
-		}
-
-		send(clientSocket, buf, bytesReceived + 1, 0);
 	}
 
-	// close socket
-	notify("close client socket");
-	closesocket(clientSocket);
-
 	// cleanup
-	notify("cleanup");
 	WSACleanup();
 }
